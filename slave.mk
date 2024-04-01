@@ -112,7 +112,6 @@ endif
 configure :
 	$(Q)mkdir -p $(CONTAINER_TMP_PATH)
 	$(Q)mkdir -p $(JESSIE_DEBS_PATH)
-	$(Q)mkdir -p $(JESSIE_DEBS_PATH)
 	$(Q)mkdir -p $(STRETCH_DEBS_PATH)
 	$(Q)mkdir -p $(BUSTER_DEBS_PATH)
 	$(Q)mkdir -p $(BULLSEYE_DEBS_PATH)
