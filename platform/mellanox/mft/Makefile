@@ -78,8 +78,8 @@ $(addprefix $(DEST)/, $(KERNEL_MFT_TARGET)): $(DEST)/% :
 
 	# put a lock here because dpkg does not allow installing packages in parallel
 	while true; do
-	if mkdir $(DEST)/dpkg_lock &> /dev/null; then
-	{ sudo dpkg -i $(SRC_DEB) && rm -d $(DEST)/dpkg_lock && break; } || { rm -d $(DEST)/dpkg_lock && exit 1 ; }
+	if mkdir $(CONTAINER_TMP_PATH)/dpkg_lock &> /dev/null; then
+	{ sudo dpkg -i $(SRC_DEB) && rm -d $(CONTAINER_TMP_PATH)/dpkg_lock && break; } || { rm -d $(CONTAINER_TMP_PATH)/dpkg_lock && exit 1 ; }
 	fi
 	done
 
