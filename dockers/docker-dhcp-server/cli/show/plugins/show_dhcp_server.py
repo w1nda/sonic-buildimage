@@ -120,7 +120,7 @@ def option(db, option_name):
     for key in dbconn.keys("CONFIG_DB", "DHCP_SERVER_IPV4_CUSTOMIZED_OPTIONS|" + option_name):
         entry = dbconn.get_all("CONFIG_DB", key)
         name = key.split("|")[1]
-        table.append([name, entry["id"], entry["value"], entry["type"]])
+        table.append([name, entry["option_id"], entry["value"], entry["type"]])
     click.echo(tabulate(table, headers=headers, tablefmt="grid"))
 
 
