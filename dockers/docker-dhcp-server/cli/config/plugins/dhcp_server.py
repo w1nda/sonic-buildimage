@@ -372,7 +372,7 @@ def dhcp_server_ipv4_option_add(db, option_name, option_id, type_, value):
     if dbconn.exists("CONFIG_DB", key):
         ctx.fail("Option {} already exist".format(option_name))
     dbconn.hmset("CONFIG_DB", key, {
-        "option_id": option_id,
+        "id": option_id,
         "type": type_,
         "value": value,
         })
