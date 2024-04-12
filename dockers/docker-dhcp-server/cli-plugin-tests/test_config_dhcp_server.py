@@ -624,7 +624,7 @@ class TestConfigDHCPServer(object):
 
     def test_config_dhcp_server_ipv4_option_add(self, mock_db):
         expected_value = {
-            "option_id": "165",
+            "id": "165",
             "type": "string",
             "value": "dummy_value"
         }
