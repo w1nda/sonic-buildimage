@@ -121,8 +121,8 @@ class KeaDhcp4LeaseHandler(LeaseHanlder):
             valid_lifetime = splits[3]
             lease_end = splits[4]
 
-            vlan_name = fdb_info[mac_address] if mac_address in fdb_info else DHCP_UNKNOWN_INTERFACE
-            new_key = "{}|{}".format(vlan_name, mac_address)
+            dhcp_interface = fdb_info[mac_address] if mac_address in fdb_info else DHCP_UNKNOWN_INTERFACE
+            new_key = "{}|{}".format(dhcp_interface, mac_address)
             if new_key in new_lease:
                 continue
             new_lease[new_key] = {
