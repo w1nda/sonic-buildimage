@@ -1,10 +1,20 @@
 from dhcp_utilities.common.utils import DhcpDbConnector
-from dhcp_utilities.dhcpservd.dhcp_lease import KeaDhcp4LeaseHandler, LeaseHanlder
+from dhcp_utilities.dhcpservd.dhcp_lease import KeaDhcp4LeaseHandler, LeaseHanlder, DHCP_UNKNOWN_INTERFACE
 from freezegun import freeze_time
 from swsscommon import swsscommon
 from unittest.mock import patch, call, MagicMock
 
 expected_lease = {
+    "%s|10:70:fd:b6:13:19" % DHCP_UNKNOWN_INTERFACE: {
+        "lease_start": "1697607205",
+        "lease_end": "1697610805",
+        "ip": "193.168.0.133"
+    },
+    "%s|10:70:fd:b6:13:20" % DHCP_UNKNOWN_INTERFACE: {
+        "lease_start": "1693995705",
+        "lease_end": "1693999305",
+        "ip": "193.168.2.3"
+    },
     "Vlan1000|10:70:fd:b6:13:00": {
         "lease_start": "1693997305",
         "lease_end": "1693997305",
@@ -73,6 +83,7 @@ def test_get_fdb_info(mock_swsscommon_dbconnector_init):
 def test_update_kea_lease(mock_swsscommon_dbconnector_init, mock_swsscommon_table_init):
     tested_lease = expected_lease
     mock_lease_table = {
+        "%s|10:70:fd:b6:13:21" % DHCP_UNKNOWN_INTERFACE: {},
         "Vlan1000|aa:bb:cc:dd:ee:ff": {},
         "Vlan1000|10:70:fd:b6:13:00": {},
         "Vlan1000|10:70:fd:b6:13:17": {},
@@ -89,18 +100,22 @@ def test_update_kea_lease(mock_swsscommon_dbconnector_init, mock_swsscommon_tabl
         kea_lease_handler = KeaDhcp4LeaseHandler(db_connector)
         kea_lease_handler.update_lease()
         # Verify that old key was deleted
-        mock_delete.assert_has_calls([
+        mock_delete.assert_has_calls(calls=[
             call("DHCP_SERVER_IPV4_LEASE|Vlan1000|10:70:fd:b6:13:00"),
             call("DHCP_SERVER_IPV4_LEASE|Vlan1000|10:70:fd:b6:13:17"),
-            call("DHCP_SERVER_IPV4_LEASE|Vlan1000|aa:bb:cc:dd:ee:ff")
-        ])
+            call("DHCP_SERVER_IPV4_LEASE|Vlan1000|aa:bb:cc:dd:ee:ff"),
+            call("DHCP_SERVER_IPV4_LEASE|%s|10:70:fd:b6:13:21" % DHCP_UNKNOWN_INTERFACE)
+        ], any_order=True)
         # Verify that lease has been updated, to be noted that lease for "192.168.0.2" didn't been updated because
         # lease_start equals to lease_end
-        mock_hset.assert_has_calls([
+        mock_hset.assert_has_calls(calls=[
+            call("DHCP_SERVER_IPV4_LEASE|%s|10:70:fd:b6:13:19" % DHCP_UNKNOWN_INTERFACE, "lease_start", "1697607205"),
+            call("DHCP_SERVER_IPV4_LEASE|%s|10:70:fd:b6:13:19" % DHCP_UNKNOWN_INTERFACE, "lease_end", "1697610805"),
+            call("DHCP_SERVER_IPV4_LEASE|%s|10:70:fd:b6:13:19" % DHCP_UNKNOWN_INTERFACE, "ip", "193.168.0.133"),
             call("DHCP_SERVER_IPV4_LEASE|Vlan1000|10:70:fd:b6:13:18", "lease_start", "1697607205"),
             call("DHCP_SERVER_IPV4_LEASE|Vlan1000|10:70:fd:b6:13:18", "lease_end", "1697610805"),
             call("DHCP_SERVER_IPV4_LEASE|Vlan1000|10:70:fd:b6:13:18", "ip", "193.168.0.132")
-        ])
+        ], any_order=True)
         kea_lease_handler.update_lease()
         mock_sleep.assert_called_once_with(2)
 

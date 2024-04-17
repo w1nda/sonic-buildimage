@@ -9,6 +9,7 @@ from datetime import datetime
 DHCP_SERVER_IPV4_LEASE = "DHCP_SERVER_IPV4_LEASE"
 KEA_LEASE_FILE_PATH = "/tmp/kea-lease.csv"
 DEFAULE_LEASE_UPDATE_INTERVAL = 2  # unit: sec
+DHCP_UNKNOWN_INTERFACE = "Unknown"
 
 
 class LeaseManager(object):
@@ -120,10 +121,8 @@ class KeaDhcp4LeaseHandler(LeaseHanlder):
             valid_lifetime = splits[3]
             lease_end = splits[4]
 
-            if mac_address not in fdb_info:
-                syslog.syslog(syslog.LOG_WARNING, "Cannot not find {} in fdb table".format(mac_address))
-                continue
-            new_key = "{}|{}".format(fdb_info[mac_address], mac_address)
+            vlan_name = fdb_info[mac_address] if mac_address in fdb_info else DHCP_UNKNOWN_INTERFACE
+            new_key = "{}|{}".format(vlan_name, mac_address)
             if new_key in new_lease:
                 continue
             new_lease[new_key] = {
