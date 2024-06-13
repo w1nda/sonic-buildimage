@@ -5,5 +5,5 @@ Section: custom
 
 Package: sonic-nettools
 Priority: optional
-Architecture: all
+Architecture: any
 Description: Networking command line tools
