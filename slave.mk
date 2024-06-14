@@ -1368,6 +1368,7 @@ $(addprefix $(TARGET_PATH)/, $(SONIC_INSTALLERS)) : $(TARGET_PATH)/% : \
                 $(PYTHON_SWSSCOMMON) \
                 $(PYTHON3_SWSSCOMMON) \
                 $(SONIC_DB_CLI) \
+                $(SONIC_NETTOOLS) \
                 $(SONIC_RSYSLOG_PLUGIN) \
                 $(SONIC_UTILITIES_DATA) \
                 $(SONIC_HOST_SERVICES_DATA) \
