@@ -448,5 +448,5 @@ RUN mkdir -p /.cargo && $RUST_ROOT/bin/rustup target add armv7-unknown-linux-gnu
 {% if CROSS_BUILD_ENVIRON == "y" and CONFIGURED_ARCH == "arm64" %}
 RUN mkdir -p /.cargo && $RUST_ROOT/bin/rustup target add aarch64-unknown-linux-gnu && echo "[target.aarch64-unknown-linux-gnu]\nlinker = \"aarch64-linux-gnu-gcc\"" >> /.cargo/config.toml
 {% endif -%}
-RUN echo "export PATH=$PATH:$RUST_ROOT/bin" >> /etc/bash.bashrc
-RUN echo "export RUSTUP_HOME=$RUST_ROOT" >> /etc/bash.bashrc
+ENV RUSTUP_HOME $RUST_ROOT
+ENV PATH $PATH:$RUST_ROOT/bin
