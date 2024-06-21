@@ -738,12 +738,13 @@ RUN curl -fsSL -o /usr/local/bin/bazel ${bazelisk_url} && chmod 755 /usr/local/b
 {% endif -%}
 
 # Install Rust
-RUN RUSTUP_HOME=/usr/.cargo CARGO_HOME=/usr/.cargo bash -c 'curl --proto "=https" -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.79.0 -y'
+ARG RUST_ROOT=/usr/.cargo
+RUN RUSTUP_HOME=$RUST_ROOT CARGO_HOME=$RUST_ROOT bash -c 'curl --proto "=https" -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.79.0 -y'
 {% if CROSS_BUILD_ENVIRON == "y" and CONFIGURED_ARCH == "armhf" %}
 RUN mkdir -p /.cargo && echo "[target.armv7-unknown-linux-gnueabihf]\nlinker = \"arm-linux-gnueabihf-gcc\"" >> /.cargo/config.toml
 {% endif -%}
 {% if CROSS_BUILD_ENVIRON == "y" and CONFIGURED_ARCH == "arm64" %}
 RUN mkdir -p /.cargo && echo "[target.aarch64-unknown-linux-gnu]\nlinker = \"aarch64-linux-gnu-gcc\"" >> /.cargo/config.toml
 {% endif -%}
-RUN echo 'export PATH=$PATH:/usr/.cargo/bin' >> /etc/bash.bashrc
-RUN echo 'export RUSTUP_HOME=/usr/.cargo' >> /etc/bash.bashrc
+RUN echo "export PATH=$PATH:$RUST_ROOT/bin" >> /etc/bash.bashrc
+RUN echo "export RUSTUP_HOME=$RUST_ROOT" >> /etc/bash.bashrc
