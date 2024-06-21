@@ -113,6 +113,7 @@ RUN apt-get update && apt-get install -y eatmydata && eatmydata apt-get install 
         git-buildpackage \
         perl-modules \
         libclass-accessor-perl \
+        libcap2-bin \
         libswitch-perl \
         libzmq5 \
         libzmq3-dev \
@@ -655,6 +656,7 @@ RUN eatmydata apt-get install -y \
         pps-tools:$arch \
         libpam-cap:$arch \
         libcap-dev:$arch \
+        libcap2-bin:$arch \
         libpam0g-dev:$arch \
         libaudit-dev:$arch \
         libgtk-3-dev:$arch \

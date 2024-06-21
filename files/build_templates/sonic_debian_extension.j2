@@ -102,6 +102,7 @@ sudo mkdir -p $FILESYSTEM_ROOT_USR_LIB_SYSTEMD_SYSTEM
 # Install sonic-nettools
 sudo dpkg --root=$FILESYSTEM_ROOT -i $debs_path/sonic-nettools_*.deb || \
     sudo LANG=C DEBIAN_FRONTEND=noninteractive chroot $FILESYSTEM_ROOT apt-get -y install -f
+sudo setcap 'cap_net_raw=+ep' /usr/bin/wol
 
 # Install a patched version of ifupdown2  (and its dependencies via 'apt-get -y install -f')
 sudo dpkg --root=$FILESYSTEM_ROOT -i $debs_path/ifupdown2_*.deb || \
