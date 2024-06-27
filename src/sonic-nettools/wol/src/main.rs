@@ -1,10 +1,10 @@
 mod wol;
 
-extern crate pnet;
 extern crate clap;
-
-use wol::wol;
+extern crate pnet;
 
 fn main() {
-    wol();
+    if let Err(e) = wol::build_and_send() {
+        panic!("Error: {}", e);
+    }
 }
