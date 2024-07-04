@@ -1,8 +1,11 @@
 use clap::Parser;
 use pnet::datalink::Channel::Ethernet;
 use pnet::datalink::{self, DataLinkSender, MacAddr, NetworkInterface};
+use std::fs::read_to_string;
 use std::result::Result;
 use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
@@ -91,7 +94,7 @@ fn parse_target_macs(args: &WolArgs) -> Result<Vec<[u8; 6]>, String> {
 
 fn is_operstate_up(interface: &str) -> Result<bool, String> {
     let state_file_path = format!("/sys/class/net/{}/operstate", interface);
-    match std::fs::read_to_string(state_file_path) {
+    match read_to_string(state_file_path) {
         Ok(content) => Ok(content.trim() == "up"),
         Err(_) => Err(format!(
             "Could not read operstate file for interface {}",
@@ -179,7 +182,7 @@ fn send_magic_packet(
                     .fold(String::new(), |acc, b| acc + &format!("{:02X}", b))
             )
         }
-        std::thread::sleep(std::time::Duration::from_millis(*interval));
+        thread::sleep(Duration::from_millis(*interval));
     }
     Ok(())
 }
@@ -209,10 +212,10 @@ fn open_tx_channel(interface: &str) -> Result<Box<dyn DataLinkSender>, String> {
 This tool can generate and send wake on LAN magic packets with target interface and mac
 
 Examples:
-    wol Ethernet10 00:11:22:33:44:55
-    wol Ethernet10 00:11:22:33:44:55 -b
-    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 00:22:44:66:88:aa
-    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -i 2000"
+    wol -i Ethernet10 -m 00:11:22:33:44:55
+    wol -i Ethernet10 -m 00:11:22:33:44:55 -b
+    wol -i Vlan1000 -m 00:11:22:33:44:55,11:33:55:77:99:bb -p 00:22:44:66:88:aa
+    wol -i Vlan1000 -m 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -t 2000"
 )]
 struct WolArgs {
     /// The name of the network interface to send the magic packet through
@@ -378,12 +381,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_operstate_up() {
-        // assert!(is_operstate_up("lo").is_ok());
-        // assert!(is_operstate_up("eth0").is_err());
-    }
-
-    #[test]
     fn test_is_mac_string_valid() {
         assert!(is_mac_string_valid("00:11:22:33:44:55"));
         assert!(!is_mac_string_valid(""));
@@ -401,12 +398,6 @@ mod tests {
         assert!(!is_ipv4_address_valid("192.168.1"));
         assert!(!is_ipv4_address_valid("192.168.1.256"));
         assert!(!is_ipv4_address_valid("192.168.1.1.1"));
-    }
-
-    #[test]
-    fn test_get_interface_mac() {
-        // assert!(get_interface_mac("lo").is_ok());
-        // assert!(get_interface_mac("eth0").is_err());
     }
 
     #[test]
@@ -450,30 +441,91 @@ mod tests {
     }
 
     #[test]
-    fn test_send_magic_packet() {
-    }
-
-    #[test]
-    fn test_open_tx_channel() {
-        // assert!(open_tx_channel("lo").is_ok());
-        // assert!(open_tx_channel("eth0").is_err());
-    }
-
-    #[test]
     fn verify_cli() {
         WolArgs::command().debug_assert();
     }
 
     #[test]
-    fn verify_cli_with_password() {
-        WolArgs::parse_from(vec![
+    fn verify_args_parse() {
+        // Interface is required
+        let result = WolArgs::try_parse_from(&["wol", "-i", "eth0"]);
+        assert!(result.is_ok_and(|a| a.interface == "eth0"));
+        let result = WolArgs::try_parse_from(&["wol"]);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "error: the following required arguments were not provided:\n  --interface <INTERFACE>\n\nUsage: wol --interface <INTERFACE>\n\nFor more information, try '--help'.\n"
+        );
+        // Mac address should valid
+        let args = WolArgs::try_parse_from(&[
             "wol",
             "-i",
             "Ethernet10",
             "-m",
-            "00:11:22:33:44:55",
-            "-p",
-            "1.1.1.1",
-        ]);
+            "00:11:22:33:44:55,00:01:02:03:04:05",
+        ])
+        .unwrap();
+        let macs = parse_target_macs(&args).unwrap();
+        assert_eq!(macs.len(), 2);
+        assert_eq!(macs[0], [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+        assert_eq!(macs[1], [0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-m", "00:11:22:33:44:GG"])
+            .unwrap();
+        let result = parse_target_macs(&args);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid MAC address");
+        // Broadcast can be set without target mac
+        let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-b"]).unwrap();
+        let macs = parse_target_macs(&args).unwrap();
+        assert_eq!(args.broadcast, true);
+        assert_eq!(macs.len(), 1);
+        assert_eq!(macs[0], BROADCAST_MAC);
+        // Broadcast and target mac cannot be set together
+        let args =
+            WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-m", "00:11:22:33:44:55", "-b"])
+                .unwrap();
+        let result = parse_target_macs(&args);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Error: Cannot specify both --broadcast and --target-mac"
+        );
+        // Either broadcast or target mac should be set
+        let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10"]).unwrap();
+        let result = parse_target_macs(&args);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Error: Must specify either --broadcast or --target-mac"
+        );
+        // Password can be set
+        let args =
+            WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-p", "192.168.0.0"]).unwrap();
+        assert_eq!(args.password.unwrap().ref_bytes(), &[192, 168, 0, 0]);
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-p", "00:01:02:03:04:05"])
+            .unwrap();
+        assert_eq!(args.password.unwrap().ref_bytes(), &[0, 1, 2, 3, 4, 5]);
+        let result = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-p", "xxx"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "error: invalid value 'xxx' for '--password <PASSWORD>': Invalid password\n\nFor more information, try '--help'.\n");
+        // Count should be between 1 and 5
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b"]).unwrap();
+        assert_eq!(args.count, 1); // default value
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-c", "5"]).unwrap();
+        assert_eq!(args.count, 5);
+        let result = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-c", "0"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "error: invalid value '0' for '--count <COUNT>': 0 is not in 1..6\n\nFor more information, try '--help'.\n");
+        // Interval should be between 0 and 2000
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b"]).unwrap();
+        assert_eq!(args.interval, 0); // default value
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-t", "2000"]).unwrap();
+        assert_eq!(args.interval, 2000);
+        let result = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-t", "2001"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "error: invalid value '2001' for '--interval <INTERVAL>': 2001 is not in 0..2001\n\nFor more information, try '--help'.\n");
+        // Verbose can be set
+        let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "--verbose"]).unwrap();
+        assert_eq!(args.verbose, true);
     }
 }
