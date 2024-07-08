@@ -9,11 +9,39 @@ use std::time::Duration;
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-pub fn build_and_send() -> Result<(), String> {
+#[derive(Debug)]
+pub struct WolErr {
+    pub msg: String,
+    pub code: i32,
+}
+
+impl std::error::Error for WolErr {}
+
+impl std::fmt::Display for WolErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error: {}", self.msg)
+    }
+}
+
+enum WolErrCode {
+    InvalidArguments = 1,
+    InexistentInterface = 2,
+    InterfaceNotUp = 3,
+    InvalidMacAddress = 4,
+    InvalidIpv4Address = 5,
+    InvalidPassword = 6,
+    FailedToSendPacket = 7,
+    UnknownError = 999,
+}
+
+pub fn build_and_send() -> Result<(), WolErr> {
     let args = WolArgs::parse();
     let target_macs = parse_target_macs(&args)?;
     if !is_operstate_up(&args.interface)? {
-        return Err("Error: The target interface is not up".into());
+        return Err(WolErr {
+            msg: String::from("Error: The target interface is not up"),
+            code: WolErrCode::InterfaceNotUp as i32,
+        });
     }
     let src_mac = get_interface_mac(&args.interface)?;
     let mut tx = open_tx_channel(&args.interface)?;
@@ -40,44 +68,58 @@ pub fn build_and_send() -> Result<(), String> {
     Ok(())
 }
 
-fn parse_mac_addr(mac_str: &str) -> Result<[u8; 6], String> {
+fn parse_mac_addr(mac_str: &str) -> Result<[u8; 6], WolErr> {
     MacAddr::from_str(mac_str)
         .map(|mac| mac.octets())
-        .map_err(|_| "Invalid MAC address".into())
+        .map_err(|_| WolErr {
+            msg: String::from("Invalid MAC address"),
+            code: WolErrCode::InvalidMacAddress as i32,
+        })
 }
 
-fn parse_ipv4_addr(ipv4_str: &str) -> Result<Vec<u8>, String> {
+fn parse_ipv4_addr(ipv4_str: &str) -> Result<Vec<u8>, WolErr> {
     if !is_ipv4_address_valid(ipv4_str) {
-        Err("Invalid IPv4 address".into())
+        Err(WolErr {
+            msg: String::from("Invalid IPv4 address"),
+            code: WolErrCode::InvalidIpv4Address as i32,
+        })
     } else {
         ipv4_str
             .split('.')
             .map(|octet| octet.parse::<u8>())
             .collect::<Result<Vec<u8>, _>>()
-            .map_err(|_| "Invalid IPv4 address".into())
+            .map_err(|_| WolErr {
+                msg: String::from("Invalid IPv4 address"),
+                code: WolErrCode::InvalidIpv4Address as i32,
+            })
     }
 }
 
-fn parse_password(password: &str) -> Result<Password, String> {
+fn parse_password(password: &str) -> Result<Password, WolErr> {
     if is_ipv4_address_valid(password) {
         Ok(Password(parse_ipv4_addr(password)?))
     } else if is_mac_string_valid(password) {
         parse_mac_addr(password).map(|mac| Password(mac.to_vec()))
     } else {
-        Err("Invalid password".to_string())
+        Err(WolErr {
+            msg: String::from("Invalid password"),
+            code: WolErrCode::InvalidPassword as i32,
+        })
     }
 }
 
-fn parse_target_macs(args: &WolArgs) -> Result<Vec<[u8; 6]>, String> {
+fn parse_target_macs(args: &WolArgs) -> Result<Vec<[u8; 6]>, WolErr> {
     if args.broadcast && args.target_mac.is_some() {
-        return Err(String::from(
-            "Error: Cannot specify both --broadcast and --target-mac",
-        ));
+        return Err(WolErr {
+            msg: String::from("Error: Cannot specify both --broadcast and --target-mac"),
+            code: WolErrCode::InvalidArguments as i32,
+        });
     }
     if !args.broadcast && args.target_mac.is_none() {
-        return Err(String::from(
-            "Error: Must specify either --broadcast or --target-mac",
-        ));
+        return Err(WolErr {
+            msg: String::from("Error: Must specify either --broadcast or --target-mac"),
+            code: WolErrCode::InvalidArguments as i32,
+        });
     }
 
     if args.broadcast {
@@ -92,14 +134,14 @@ fn parse_target_macs(args: &WolArgs) -> Result<Vec<[u8; 6]>, String> {
     }
 }
 
-fn is_operstate_up(interface: &str) -> Result<bool, String> {
+fn is_operstate_up(interface: &str) -> Result<bool, WolErr> {
     let state_file_path = format!("/sys/class/net/{}/operstate", interface);
     match read_to_string(state_file_path) {
         Ok(content) => Ok(content.trim() == "up"),
-        Err(_) => Err(format!(
-            "Could not read operstate file for interface {}",
-            interface
-        )),
+        Err(_) => Err(WolErr {
+            msg: format!("Could not read operstate file for interface {}", interface),
+            code: WolErrCode::InexistentInterface as i32,
+        }),
     }
 }
 
@@ -115,7 +157,7 @@ fn is_ipv4_address_valid(ipv4_str: &str) -> bool {
             .all(|octet| octet.parse::<u64>().map_or(false, |n| n < 256))
 }
 
-fn get_interface_mac(interface_name: &String) -> Result<[u8; 6], String> {
+fn get_interface_mac(interface_name: &String) -> Result<[u8; 6], WolErr> {
     if let Some(interface) = datalink::interfaces()
         .into_iter()
         .find(|iface: &NetworkInterface| iface.name == *interface_name)
@@ -123,10 +165,16 @@ fn get_interface_mac(interface_name: &String) -> Result<[u8; 6], String> {
         if let Some(mac) = interface.mac {
             Ok(mac.octets())
         } else {
-            Err("Could not get MAC address of target interface".into())
+            Err(WolErr {
+                msg: String::from("Could not get MAC address of target interface"),
+                code: WolErrCode::UnknownError as i32,
+            })
         }
     } else {
-        Err("Could not find target interface".into())
+        Err(WolErr {
+            msg: String::from("Could not find target interface"),
+            code: WolErrCode::InexistentInterface as i32,
+        })
     }
 }
 
@@ -134,7 +182,7 @@ fn build_magic_packet(
     src_mac: &[u8; 6],
     dst_mac: &[u8; 6],
     password: &Option<Password>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, WolErr> {
     let password_len = password.as_ref().map_or(0, |p| p.ref_bytes().len());
     let mut pkt = vec![0u8; 116 + password_len];
     pkt[0..6].copy_from_slice(dst_mac);
@@ -154,19 +202,21 @@ fn send_magic_packet(
     count: &u8,
     interval: &u64,
     verbose: &bool,
-) -> Result<(), String> {
+) -> Result<(), WolErr> {
     for nth in 0..*count {
-        // if let Err(e) = tx.send_to(&packet, None).unwrap() {
-        //     eprintln!("Failed to send magic packet: {}", e);
-        //     break;
-        // }
         match tx.send_to(&packet, None) {
             Some(Ok(_)) => {}
             Some(Err(e)) => {
-                return Err(format!("Failed to send magic packet: {}", e));
+                return Err(WolErr {
+                    msg: format!("Failed to send packet: {}", e),
+                    code: WolErrCode::FailedToSendPacket as i32,
+                });
             }
             None => {
-                return Err("Not sure if packet was sent".into());
+                return Err(WolErr {
+                    msg: String::from("Not sure if packet was sent or not"),
+                    code: WolErrCode::FailedToSendPacket as i32,
+                });
             }
         }
         if *verbose {
@@ -187,21 +237,27 @@ fn send_magic_packet(
     Ok(())
 }
 
-fn open_tx_channel(interface: &str) -> Result<Box<dyn DataLinkSender>, String> {
+fn open_tx_channel(interface: &str) -> Result<Box<dyn DataLinkSender>, WolErr> {
     if let Some(interface) = datalink::interfaces()
         .into_iter()
         .find(|iface: &NetworkInterface| iface.name == interface)
     {
         match datalink::channel(&interface, Default::default()) {
             Ok(Ethernet(tx, _)) => Ok(tx),
-            Ok(_) => Err("Unhandled channel type".into()),
-            Err(e) => Err(format!(
-                "An error occurred when creating the datalink channel: {}",
-                e
-            )),
+            Ok(_) => Err(WolErr {
+                msg: String::from("Could not create raw socket"),
+                code: WolErrCode::UnknownError as i32,
+            }),
+            Err(e) => Err(WolErr {
+                msg: format!("Could not create socket: {}", e),
+                code: WolErrCode::UnknownError as i32,
+            }),
         }
     } else {
-        Err("Could not find target interface".into())
+        Err(WolErr {
+            msg: String::from("Could not find target interface"),
+            code: WolErrCode::InexistentInterface as i32,
+        })
     }
 }
 
@@ -269,11 +325,17 @@ mod tests {
 
         let mac_str = "00:11:22:33:44:GG";
         assert!(parse_mac_addr(mac_str).is_err());
-        assert_eq!(parse_mac_addr(mac_str).unwrap_err(), "Invalid MAC address");
+        assert_eq!(
+            parse_mac_addr(mac_str).unwrap_err().msg,
+            "Invalid MAC address"
+        );
 
         let mac_str = "00-01-22-33-44-55";
         assert!(parse_mac_addr(mac_str).is_err());
-        assert_eq!(parse_mac_addr(mac_str).unwrap_err(), "Invalid MAC address");
+        assert_eq!(
+            parse_mac_addr(mac_str).unwrap_err().msg,
+            "Invalid MAC address"
+        );
     }
 
     #[test]
@@ -285,21 +347,21 @@ mod tests {
         let ipv4_str = "127.0.0.256";
         assert!(parse_ipv4_addr(ipv4_str).is_err());
         assert_eq!(
-            parse_ipv4_addr(ipv4_str).unwrap_err(),
+            parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
         );
 
         let ipv4_str = "127.0.0";
         assert!(parse_ipv4_addr(ipv4_str).is_err());
         assert_eq!(
-            parse_ipv4_addr(ipv4_str).unwrap_err(),
+            parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
         );
 
         let ipv4_str = "::1";
         assert!(parse_ipv4_addr(ipv4_str).is_err());
         assert_eq!(
-            parse_ipv4_addr(ipv4_str).unwrap_err(),
+            parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
         );
     }
@@ -362,7 +424,7 @@ mod tests {
         args.target_mac = Some("00:11:22:33:44:55".to_string());
         assert!(parse_target_macs(&args).is_err());
         assert_eq!(
-            parse_target_macs(&args).unwrap_err(),
+            parse_target_macs(&args).unwrap_err().msg,
             "Error: Cannot specify both --broadcast and --target-mac"
         );
 
@@ -370,14 +432,17 @@ mod tests {
         args.target_mac = None;
         assert!(parse_target_macs(&args).is_err());
         assert_eq!(
-            parse_target_macs(&args).unwrap_err(),
+            parse_target_macs(&args).unwrap_err().msg,
             "Error: Must specify either --broadcast or --target-mac"
         );
 
         args.broadcast = false;
         args.target_mac = Some("00:01".to_string());
         assert!(parse_target_macs(&args).is_err());
-        assert_eq!(parse_target_macs(&args).unwrap_err(), "Invalid MAC address");
+        assert_eq!(
+            parse_target_macs(&args).unwrap_err().msg,
+            "Invalid MAC address"
+        );
     }
 
     #[test]
@@ -473,7 +538,7 @@ mod tests {
             .unwrap();
         let result = parse_target_macs(&args);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Invalid MAC address");
+        assert_eq!(result.unwrap_err().msg, "Invalid MAC address");
         // Broadcast can be set without target mac
         let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-b"]).unwrap();
         let macs = parse_target_macs(&args).unwrap();
@@ -487,7 +552,7 @@ mod tests {
         let result = parse_target_macs(&args);
         assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().to_string(),
+            result.unwrap_err().msg,
             "Error: Cannot specify both --broadcast and --target-mac"
         );
         // Either broadcast or target mac should be set
@@ -495,7 +560,7 @@ mod tests {
         let result = parse_target_macs(&args);
         assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().to_string(),
+            result.unwrap_err().msg,
             "Error: Must specify either --broadcast or --target-mac"
         );
         // Password can be set
@@ -507,7 +572,7 @@ mod tests {
         assert_eq!(args.password.unwrap().ref_bytes(), &[0, 1, 2, 3, 4, 5]);
         let result = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b", "-p", "xxx"]);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "error: invalid value 'xxx' for '--password <PASSWORD>': Invalid password\n\nFor more information, try '--help'.\n");
+        assert_eq!(result.unwrap_err().to_string(), "error: invalid value 'xxx' for '--password <PASSWORD>': Error: Invalid password\n\nFor more information, try '--help'.\n");
         // Count should be between 1 and 5
         let args = WolArgs::try_parse_from(&["wol", "-i", "eth0", "-b"]).unwrap();
         assert_eq!(args.count, 1); // default value
