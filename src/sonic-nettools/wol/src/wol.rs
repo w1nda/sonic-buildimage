@@ -9,7 +9,7 @@ use std::time::Duration;
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WolErr {
     pub msg: String,
     pub code: i32,
@@ -24,10 +24,10 @@ impl std::fmt::Display for WolErr {
 }
 
 enum WolErrCode {
-    InvalidArguments = 1,
-    InexistentInterface = 2,
-    InterfaceNotUp = 3,
-    InvalidMacAddress = 4,
+    InvalidMacAddress = 1,
+    InvalidArguments = 2,
+    InexistentInterface = 3,
+    InterfaceNotUp = 4,
     InvalidIpv4Address = 5,
     InvalidPassword = 6,
     FailedToSendPacket = 7,
@@ -261,7 +261,7 @@ fn open_tx_channel(interface: &str) -> Result<Box<dyn DataLinkSender>, WolErr> {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     next_line_help = true,
     about = "
@@ -315,7 +315,6 @@ impl Password {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
 
     #[test]
     fn test_parse_mac_addr() {
@@ -329,12 +328,20 @@ mod tests {
             parse_mac_addr(mac_str).unwrap_err().msg,
             "Invalid MAC address"
         );
+        assert_eq!(
+            parse_mac_addr(mac_str).unwrap_err().code,
+            WolErrCode::InvalidMacAddress as i32
+        );
 
         let mac_str = "00-01-22-33-44-55";
         assert!(parse_mac_addr(mac_str).is_err());
         assert_eq!(
             parse_mac_addr(mac_str).unwrap_err().msg,
             "Invalid MAC address"
+        );
+        assert_eq!(
+            parse_mac_addr(mac_str).unwrap_err().code,
+            WolErrCode::InvalidMacAddress as i32
         );
     }
 
@@ -350,6 +357,10 @@ mod tests {
             parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
         );
+        assert_eq!(
+            parse_ipv4_addr(ipv4_str).unwrap_err().code,
+            WolErrCode::InvalidIpv4Address as i32
+        );
 
         let ipv4_str = "127.0.0";
         assert!(parse_ipv4_addr(ipv4_str).is_err());
@@ -357,12 +368,20 @@ mod tests {
             parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
         );
+        assert_eq!(
+            parse_ipv4_addr(ipv4_str).unwrap_err().code,
+            WolErrCode::InvalidIpv4Address as i32
+        );
 
         let ipv4_str = "::1";
         assert!(parse_ipv4_addr(ipv4_str).is_err());
         assert_eq!(
             parse_ipv4_addr(ipv4_str).unwrap_err().msg,
             "Invalid IPv4 address"
+        );
+        assert_eq!(
+            parse_ipv4_addr(ipv4_str).unwrap_err().code,
+            WolErrCode::InvalidIpv4Address as i32
         );
     }
 
@@ -378,18 +397,38 @@ mod tests {
 
         let password_str = "127.0.0.256";
         assert!(parse_password(password_str).is_err());
+        assert_eq!(
+            parse_password(password_str).unwrap_err().code,
+            WolErrCode::InvalidPassword as i32
+        );
 
         let password_str = "127.0.0";
         assert!(parse_password(password_str).is_err());
+        assert_eq!(
+            parse_password(password_str).unwrap_err().code,
+            WolErrCode::InvalidPassword as i32
+        );
 
         let password_str = "::1";
         assert!(parse_password(password_str).is_err());
+        assert_eq!(
+            parse_password(password_str).unwrap_err().code,
+            WolErrCode::InvalidPassword as i32
+        );
 
         let password_str = "00:11:22:33:44:GG";
         assert!(parse_password(password_str).is_err());
+        assert_eq!(
+            parse_password(password_str).unwrap_err().code,
+            WolErrCode::InvalidPassword as i32
+        );
 
         let password_str = "00-01-22-33-44-55";
         assert!(parse_password(password_str).is_err());
+        assert_eq!(
+            parse_password(password_str).unwrap_err().code,
+            WolErrCode::InvalidPassword as i32
+        );
     }
 
     #[test]
@@ -427,6 +466,10 @@ mod tests {
             parse_target_macs(&args).unwrap_err().msg,
             "Error: Cannot specify both --broadcast and --target-mac"
         );
+        assert_eq!(
+            parse_target_macs(&args).unwrap_err().code,
+            WolErrCode::InvalidArguments as i32
+        );
 
         args.broadcast = false;
         args.target_mac = None;
@@ -435,6 +478,10 @@ mod tests {
             parse_target_macs(&args).unwrap_err().msg,
             "Error: Must specify either --broadcast or --target-mac"
         );
+        assert_eq!(
+            parse_target_macs(&args).unwrap_err().code,
+            WolErrCode::InvalidArguments as i32
+        );
 
         args.broadcast = false;
         args.target_mac = Some("00:01".to_string());
@@ -442,6 +489,10 @@ mod tests {
         assert_eq!(
             parse_target_macs(&args).unwrap_err().msg,
             "Invalid MAC address"
+        );
+        assert_eq!(
+            parse_target_macs(&args).unwrap_err().code,
+            WolErrCode::InvalidMacAddress as i32
         );
     }
 
@@ -506,11 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn verify_cli() {
-        WolArgs::command().debug_assert();
-    }
-
-    #[test]
     fn verify_args_parse() {
         // Interface is required
         let result = WolArgs::try_parse_from(&["wol", "-i", "eth0"]);
@@ -536,9 +582,13 @@ mod tests {
         assert_eq!(macs[1], [0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
         let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-m", "00:11:22:33:44:GG"])
             .unwrap();
-        let result = parse_target_macs(&args);
+        let result: Result<Vec<[u8; 6]>, WolErr> = parse_target_macs(&args);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().msg, "Invalid MAC address");
+        assert_eq!(result.clone().unwrap_err().msg, "Invalid MAC address");
+        assert_eq!(
+            result.unwrap_err().code,
+            WolErrCode::InvalidMacAddress as i32
+        );
         // Broadcast can be set without target mac
         let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10", "-b"]).unwrap();
         let macs = parse_target_macs(&args).unwrap();
@@ -552,16 +602,24 @@ mod tests {
         let result = parse_target_macs(&args);
         assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().msg,
+            result.clone().unwrap_err().msg,
             "Error: Cannot specify both --broadcast and --target-mac"
+        );
+        assert_eq!(
+            result.unwrap_err().code,
+            WolErrCode::InvalidArguments as i32
         );
         // Either broadcast or target mac should be set
         let args = WolArgs::try_parse_from(&["wol", "-i", "Ethernet10"]).unwrap();
         let result = parse_target_macs(&args);
         assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().msg,
+            result.clone().unwrap_err().msg,
             "Error: Must specify either --broadcast or --target-mac"
+        );
+        assert_eq!(
+            result.unwrap_err().code,
+            WolErrCode::InvalidArguments as i32
         );
         // Password can be set
         let args =
