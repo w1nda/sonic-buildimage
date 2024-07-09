@@ -1,3 +1,4 @@
+use clap::builder::ArgPredicate;
 use clap::Parser;
 use pnet::datalink::Channel::Ethernet;
 use pnet::datalink::{self, DataLinkSender, MacAddr, NetworkInterface};
@@ -74,6 +75,21 @@ fn valide_arguments(args: &WolArgs) -> Result<(), WolErr> {
             code: WolErrCode::InvalidArguments as i32,
         });
     }
+
+    if args.interval > 2000 {
+        return Err(WolErr {
+            msg: String::from("Invalid value for \"INTERVAL\": interval must between 0 and 2000"),
+            code: WolErrCode::InvalidArguments as i32,
+        });
+    }
+
+    if args.count == 0 || args.count > 5 {
+        return Err(WolErr {
+            msg: String::from("Invalid value for \"COUNT\": count must between 1 and 5"),
+            code: WolErrCode::InvalidArguments as i32,
+        });
+    }
+
     Ok(())
 }
 
@@ -287,12 +303,22 @@ struct WolArgs {
     #[arg(short, long, value_parser = parse_password)]
     password: Option<Password>,
 
-    /// The number of times to send the magic packet [default: 1][range: 1-5]
-    #[arg(short, long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=5))]
+    /// For each target MAC address, the count of magic packets to send. count must between 1 and 5. This param must use with -i. [default: 1]
+    #[arg(
+        short,
+        long,
+        default_value_t = 1,
+        requires_if(ArgPredicate::IsPresent, "interval")
+    )]
     count: u8,
 
-    /// The interval in milliseconds between each magic packet transmission [default: 0][range: 0-2000]
-    #[arg(short, long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=2000))]
+    /// Wait interval milliseconds between sending each magic packet. interval must between 0 and 2000. This param must use with -c. [default: 0]
+    #[arg(
+        short,
+        long,
+        default_value_t = 0,
+        requires_if(ArgPredicate::IsPresent, "count")
+    )]
     interval: u64,
 
     /// The flag to indicate if we should print verbose output
@@ -580,24 +606,78 @@ mod tests {
         // Count should be between 1 and 5
         let args = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b"]).unwrap();
         assert_eq!(args.count, 1); // default value
-        let args = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "-c", "5"])
-            .unwrap();
+        let args = WolArgs::try_parse_from(&[
+            "wol",
+            "eth0",
+            "00:01:02:03:04:05",
+            "-b",
+            "-c",
+            "5",
+            "-i",
+            "0",
+        ])
+        .unwrap();
         assert_eq!(args.count, 5);
-        let result =
-            WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "-c", "0"]);
+        let args = WolArgs::try_parse_from(&[
+            "wol",
+            "eth0",
+            "00:01:02:03:04:05",
+            "-b",
+            "-c",
+            "0",
+            "-i",
+            "0",
+        ]);
+        let result = valide_arguments(&args.unwrap());
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "error: invalid value '0' for '--count <COUNT>': 0 is not in 1..=5\n\nFor more information, try '--help'.\n");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Error: Invalid value for \"COUNT\": count must between 1 and 5"
+        );
         // Interval should be between 0 and 2000
         let args = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b"]).unwrap();
         assert_eq!(args.interval, 0); // default value
-        let args =
-            WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "-i", "2000"])
-                .unwrap();
+        let args = WolArgs::try_parse_from(&[
+            "wol",
+            "eth0",
+            "00:01:02:03:04:05",
+            "-b",
+            "-i",
+            "2000",
+            "-c",
+            "0",
+        ])
+        .unwrap();
         assert_eq!(args.interval, 2000);
-        let result =
-            WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "-i", "2001"]);
+        let args = WolArgs::try_parse_from(&[
+            "wol",
+            "eth0",
+            "00:01:02:03:04:05",
+            "-b",
+            "-i",
+            "2001",
+            "-c",
+            "0",
+        ]);
+        let result = valide_arguments(&args.unwrap());
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "error: invalid value '2001' for '--interval <INTERVAL>': 2001 is not in 0..=2000\n\nFor more information, try '--help'.\n");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Error: Invalid value for \"INTERVAL\": interval must between 0 and 2000"
+        );
+        // Interval and count should specified together
+        let result = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-i", "2000"]);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "error: the following required arguments were not provided:\n  --count <COUNT>\n\nUsage: wol --interval <INTERVAL> --count <COUNT> <INTERFACE> <TARGET_MAC>\n\nFor more information, try '--help'.\n"
+        );
+        let result = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-c", "1"]);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "error: the following required arguments were not provided:\n  --interval <INTERVAL>\n\nUsage: wol --count <COUNT> --interval <INTERVAL> <INTERFACE> <TARGET_MAC>\n\nFor more information, try '--help'.\n"
+        );
         // Verbose can be set
         let args =
             WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "--verbose"])
