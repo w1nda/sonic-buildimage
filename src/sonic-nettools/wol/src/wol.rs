@@ -10,6 +10,65 @@ use std::time::Duration;
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
+#[derive(Parser, Debug)]
+#[command(
+    next_line_help = true,
+    about = "
+This tool can generate and send wake on LAN magic packets with target interface and mac
+
+Examples:
+    wol Ethernet10 00:11:22:33:44:55
+    wol Ethernet10 00:11:22:33:44:55 -b
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 00:22:44:66:88:aa
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -i 2000"
+)]
+struct WolArgs {
+    /// The name of the network interface to send the magic packet through
+    interface: String,
+
+    /// The MAC address of the target device, formatted as a colon-separated string (e.g. "00:11:22:33:44:55")
+    target_mac: String,
+
+    /// The flag to indicate if use broadcast MAC address instead of target device's MAC address as Destination MAC Address in Ethernet Frame Header [default: false]
+    #[arg(short, long, default_value_t = false)]
+    broadcast: bool,
+
+    /// An optional 4 or 6 byte password, in ethernet hex format or quad-dotted decimal (e.g. "127.0.0.1" or "00:11:22:33:44:55")
+    #[arg(short, long, value_parser = parse_password)]
+    password: Option<Password>,
+
+    /// For each target MAC address, the count of magic packets to send. count must between 1 and 5. This param must use with -i. [default: 1]
+    #[arg(
+        short,
+        long,
+        default_value_t = 1,
+        requires_if(ArgPredicate::IsPresent, "interval")
+    )]
+    count: u8,
+
+    /// Wait interval milliseconds between sending each magic packet. interval must between 0 and 2000. This param must use with -c. [default: 0]
+    #[arg(
+        short,
+        long,
+        default_value_t = 0,
+        requires_if(ArgPredicate::IsPresent, "count")
+    )]
+    interval: u64,
+
+    /// The flag to indicate if we should print verbose output
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Password(Vec<u8>);
+
+impl Password {
+    fn ref_bytes(&self) -> &Vec<u8> {
+        &self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct WolErr {
     pub msg: String,
@@ -273,65 +332,6 @@ fn open_tx_channel(interface: &str) -> Result<Box<dyn DataLinkSender>, WolErr> {
             ),
             code: WolErrCode::InvalidArguments as i32,
         })
-    }
-}
-
-#[derive(Parser, Debug)]
-#[command(
-    next_line_help = true,
-    about = "
-This tool can generate and send wake on LAN magic packets with target interface and mac
-
-Examples:
-    wol Ethernet10 00:11:22:33:44:55
-    wol Ethernet10 00:11:22:33:44:55 -b
-    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 00:22:44:66:88:aa
-    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -i 2000"
-)]
-struct WolArgs {
-    /// The name of the network interface to send the magic packet through
-    interface: String,
-
-    /// The MAC address of the target device, formatted as a colon-separated string (e.g. "00:11:22:33:44:55")
-    target_mac: String,
-
-    /// The flag to indicate if use broadcast MAC address instead of target device's MAC address as Destination MAC Address in Ethernet Frame Header [default: false]
-    #[arg(short, long, default_value_t = false)]
-    broadcast: bool,
-
-    /// An optional 4 or 6 byte password, in ethernet hex format or quad-dotted decimal (e.g. "127.0.0.1" or "00:11:22:33:44:55")
-    #[arg(short, long, value_parser = parse_password)]
-    password: Option<Password>,
-
-    /// For each target MAC address, the count of magic packets to send. count must between 1 and 5. This param must use with -i. [default: 1]
-    #[arg(
-        short,
-        long,
-        default_value_t = 1,
-        requires_if(ArgPredicate::IsPresent, "interval")
-    )]
-    count: u8,
-
-    /// Wait interval milliseconds between sending each magic packet. interval must between 0 and 2000. This param must use with -c. [default: 0]
-    #[arg(
-        short,
-        long,
-        default_value_t = 0,
-        requires_if(ArgPredicate::IsPresent, "count")
-    )]
-    interval: u64,
-
-    /// The flag to indicate if we should print verbose output
-    #[arg(short, long)]
-    verbose: bool,
-}
-
-#[derive(Debug, Clone)]
-struct Password(Vec<u8>);
-
-impl Password {
-    fn ref_bytes(&self) -> &Vec<u8> {
-        &self.0
     }
 }
 
