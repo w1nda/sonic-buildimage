@@ -37,11 +37,13 @@ class BBRMgr(Manager):
         self.cfg_mgr.push_list(cmds)
         self.cfg_mgr.restart_peer_groups(peer_groups_to_restart)
         log_info("BBRMgr::Scheduled BBR update")
+        self.directory.put(self.db_name, self.table_name, 'status', data['status'])
         return True
 
     def del_handler(self, key):
         """ Implementation of 'DEL' command for this class """
         log_err("The '%s' table shouldn't be removed from the db" % self.table_name)
+        self.directory.remove(self.db_name, self.table_name, 'status')
 
     def __init(self):
         """ Initialize BBRMgr. Extracted from constructor """
