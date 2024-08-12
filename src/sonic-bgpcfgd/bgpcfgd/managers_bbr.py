@@ -5,6 +5,11 @@ from swsscommon import swsscommon
 from .log import log_err, log_info
 from .manager import Manager
 
+BGP_BBR_TABLE_NAME = "BGP_BBR"
+BGP_BBR_STATUS_KEY = "status"
+BGP_BBR_STATUS_ENABLED = "enabled"
+BGP_BBR_STATUS_DISABLED = "disabled"
+
 
 class BBRMgr(Manager):
     """ This class initialize "BBR" feature for  """
@@ -23,7 +28,7 @@ class BBRMgr(Manager):
         )
         self.enabled = False
         self.bbr_enabled_pgs = {}
-        self.directory.put(self.db_name, self.table_name, 'status', "disabled")
+        self.directory.put(self.db_name, self.table_name, BGP_BBR_STATUS_KEY, BGP_BBR_STATUS_DISABLED)
         self.__init()
 
     def set_handler(self, key, data):
@@ -33,17 +38,17 @@ class BBRMgr(Manager):
             return True
         if not self.__set_validation(key, data):
             return True
-        cmds, peer_groups_to_restart = self.__set_prepare_config(data['status'])
+        cmds, peer_groups_to_restart = self.__set_prepare_config(data[BGP_BBR_STATUS_KEY])
         self.cfg_mgr.push_list(cmds)
         self.cfg_mgr.restart_peer_groups(peer_groups_to_restart)
         log_info("BBRMgr::Scheduled BBR update")
-        self.directory.put(self.db_name, self.table_name, 'status', data['status'])
+        self.directory.put(self.db_name, self.table_name, BGP_BBR_STATUS_KEY, data[BGP_BBR_STATUS_KEY])
         return True
 
     def del_handler(self, key):
         """ Implementation of 'DEL' command for this class """
         log_err("The '%s' table shouldn't be removed from the db" % self.table_name)
-        self.directory.remove(self.db_name, self.table_name, 'status')
+        self.directory.remove(self.db_name, self.table_name, BGP_BBR_STATUS_KEY)
 
     def __init(self):
         """ Initialize BBRMgr. Extracted from constructor """
@@ -51,17 +56,17 @@ class BBRMgr(Manager):
             log_err("BBRMgr::Disabled: 'bgp' key is not found in constants")
             return
         if 'bbr' in self.constants['bgp'] \
-                and 'enabled' in self.constants['bgp']['bbr'] \
+                and BGP_BBR_STATUS_ENABLED in self.constants['bgp']['bbr'] \
                 and self.constants['bgp']['bbr']['enabled']:
             self.bbr_enabled_pgs = self.__read_pgs()
             if self.bbr_enabled_pgs:
                 self.enabled = True
                 if 'default_state' in self.constants['bgp']['bbr'] \
-                        and self.constants['bgp']['bbr']['default_state'] == 'enabled':
-                    default_status = "enabled"
+                        and self.constants['bgp']['bbr']['default_state'] == BGP_BBR_STATUS_ENABLED:
+                    default_status = BGP_BBR_STATUS_ENABLED
                 else:
-                    default_status = "disabled"
-                self.directory.put(self.db_name, self.table_name, 'status', default_status)
+                    default_status = BGP_BBR_STATUS_DISABLED
+                self.directory.put(self.db_name, self.table_name, BGP_BBR_STATUS_KEY, default_status)
                 log_info("BBRMgr::Initialized and enabled. Default state: '%s'" % default_status)
             else:
                 log_info("BBRMgr::Disabled: no BBR enabled peers")
@@ -93,10 +98,10 @@ class BBRMgr(Manager):
         if key != 'all':
             log_err("Invalid key '%s' for table '%s'. Only key value 'all' is supported" % (key, self.table_name))
             return False
-        if 'status' not in data:
+        if BGP_BBR_STATUS_KEY not in data:
             log_err("Invalid value '%s' for table '%s', key '%s'. Key 'status' in data is expected" % (data, self.table_name, key))
             return False
-        if data['status'] != "enabled" and data['status'] != "disabled":
+        if data[BGP_BBR_STATUS_KEY] != BGP_BBR_STATUS_ENABLED and data[BGP_BBR_STATUS_KEY] != BGP_BBR_STATUS_DISABLED:
             log_err("Invalid value '%s' for table '%s', key '%s'. Only 'enabled' and 'disabled' are supported" % (data, self.table_name, key))
             return False
         return True
@@ -110,7 +115,7 @@ class BBRMgr(Manager):
         bgp_asn = self.directory.get_slot("CONFIG_DB", swsscommon.CFG_DEVICE_METADATA_TABLE_NAME)["localhost"]["bgp_asn"]
         available_peer_groups = self.__get_available_peer_groups()
         cmds = ["router bgp %s" % bgp_asn]
-        prefix_of_commands = "" if status == "enabled" else "no "
+        prefix_of_commands = "" if status == BGP_BBR_STATUS_ENABLED else "no "
         peer_groups_to_restart = set()
         for af in ["ipv4", "ipv6"]:
             cmds.append(" address-family %s" % af)
