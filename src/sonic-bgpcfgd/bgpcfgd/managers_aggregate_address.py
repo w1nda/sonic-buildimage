@@ -73,60 +73,113 @@ class AggregateAddressMgr(Manager):
 
     def address_set_handler(self, key, data):
         bgp_asn = self.directory.get_slot(CONFIG_DB_NAME, swsscommon.CFG_DEVICE_METADATA_TABLE_NAME)["localhost"]["bgp_asn"]
+        prefix = self.key2prefix(key)
+        is_v4 = prefix.contains('.')
         cmd_list = []
-        cmd_list.append("router bgp %s" % bgp_asn)
 
-        if '.' in key:
-            cmd_list.append("address-family ipv4")
-        else:
-            cmd_list.append("address-family ipv6")
+        aggregates_cmds = self.generate_aggregate_address_commands(
+            asn=bgp_asn,
+            prefix=prefix,
+            is_v4=is_v4,
+            is_remove=True,
+            summary_only=data.get(SUMMARY_ONLY_KEY, COMMON_FALSE_STRING),
+            as_set=data.get(AS_SET_KEY, COMMON_FALSE_STRING)
+        )
+        cmd_list.extend(aggregates_cmds)
 
-        agg_addr_cmd = "aggregate-address %s" % key
-        if SUMMARY_ONLY_KEY in data and data[SUMMARY_ONLY_KEY] == COMMON_TRUE_STRING:
-            agg_addr_cmd += " %s" % SUMMARY_ONLY_KEY
-        if AS_SET_KEY in data and data[AS_SET_KEY] == COMMON_TRUE_STRING:
-            agg_addr_cmd += " %s" % AS_SET_KEY
+        if AGGREGATE_ADDRESS_PREFIX_LIST_KEY in data and data[AGGREGATE_ADDRESS_PREFIX_LIST_KEY]:
+            append_agg_address_cmd = self.generate_prefix_list_command(
+                prefix_list_name=data[AGGREGATE_ADDRESS_PREFIX_LIST_KEY],
+                prefix=prefix,
+                is_v4=is_v4,
+                is_con=False,
+                is_remove=False
+            )
+        cmd_list.append(append_agg_address_cmd)
+
+        if CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY in data and data[CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY]:
+            append_con_address_cmd = self.generate_prefix_list_command(
+                prefix_list_name=data[CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY],
+                prefix=prefix,
+                is_v4=is_v4,
+                is_con=True,
+                is_remove=False
+            )
+        cmd_list.append(append_con_address_cmd)
 
         log_info("AggregateAddressMgr::cmd_list: %s" % cmd_list)
         self.cfg_mgr.push_list(cmd_list)
         return True
 
     def del_handler(self, key):
-        if self.address_del_handler(key):
+        address_state = self.get_data_from_state_db(key)
+        if self.address_del_handler(key, address_state):
             log_info("AggregateAddressMgr::delete address %s success" % key)
             self.del_state_db(key)
         return True
 
-    def address_del_handler(self, key):
-        self.del_state_db(key)
+    def address_del_handler(self, key, data):
         bgp_asn = self.directory.get_slot("CONFIG_DB", swsscommon.CFG_DEVICE_METADATA_TABLE_NAME)["localhost"]["bgp_asn"]
+        prefix = self.key2prefix(key)
+        is_v4 = prefix.contains('.')
         cmd_list = []
-        cmd_list.append("router bgp %s" % bgp_asn)
 
-        if '.' in key:
-            cmd_list.append("address-family ipv4")
-        else:
-            cmd_list.append("address-family ipv6")
+        aggregates_cmds = self.generate_aggregate_address_commands(
+            asn=bgp_asn,
+            prefix=prefix,
+            is_v4=is_v4,
+            is_remove=True
+        )
+        cmd_list.extend(aggregates_cmds)
 
-        cmd_list.append("no aggregate-address %s" % key)
+        if AGGREGATE_ADDRESS_PREFIX_LIST_KEY in data and data[AGGREGATE_ADDRESS_PREFIX_LIST_KEY]:
+            rm_agg_address_cmds = self.generate_prefix_list_command(
+                prefix_list_name=data[AGGREGATE_ADDRESS_PREFIX_LIST_KEY],
+                prefix=prefix,
+                is_v4=is_v4,
+                is_con=False,
+                is_remove=True
+            )
+        cmd_list.extend(rm_agg_address_cmds)
+
+        if CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY in data and data[CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY]:
+            rm_con_address_cmds = self.generate_prefix_list_command(
+                prefix_list_name=data[CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY],
+                prefix=prefix,
+                is_v4=is_v4,
+                is_con=True,
+                is_remove=True
+            )
+        cmd_list.extend(rm_con_address_cmds)
+
         log_info("AggregateAddressMgr::cmd_list: %s" % cmd_list)
         self.cfg_mgr.push_list(cmd_list)
         return True
 
     def get_addresses_from_state_db(self, bbr_required_only=False):
         addresses = []
-        for address in self.address_table.getKeys():
-            bbr_required = self.address_table.hget(address, BBR_REQUIRED_KEY)
+        for key in self.address_table.getKeys():
+            bbr_required = self.address_table.hget(key, BBR_REQUIRED_KEY)
             if not bbr_required_only or bbr_required == COMMON_TRUE_STRING:
                 data = {}
-                _as_set = self.address_table.hget(address, AS_SET_KEY)
+                _as_set = self.address_table.hget(key, AS_SET_KEY)
                 if _as_set:
                     data[AS_SET_KEY] = _as_set
-                _summary_only = self.address_table.hget(address, SUMMARY_ONLY_KEY)
+                _summary_only = self.address_table.hget(key, SUMMARY_ONLY_KEY)
                 if _summary_only:
                     data[SUMMARY_ONLY_KEY] = _summary_only
-                addresses.append((address, data))
+                _agg_addr_prefix_list = self.address_table.hget(key, AGGREGATE_ADDRESS_PREFIX_LIST_KEY)
+                if _agg_addr_prefix_list:
+                    data[AGGREGATE_ADDRESS_PREFIX_LIST_KEY] = _agg_addr_prefix_list
+                _con_addr_prefix_list = self.address_table.hget(key, CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY)
+                if _con_addr_prefix_list:
+                    data[CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY] = _con_addr_prefix_list
+                addresses.append((key, data))
         return addresses
+
+    def get_data_from_state_db(self, key):
+        data = self.address_table.hgetall(key)
+        return data
 
     def remove_all_state_of_address(self):
         for address in self.address_table.getKeys():
@@ -135,10 +188,42 @@ class AggregateAddressMgr(Manager):
         return True
 
     def set_state_db(self, key, data, address_state):
-        self.address_table.hset(key, BBR_REQUIRED_KEY, data[BBR_REQUIRED_KEY])
+        self.address_table.hset(key, BBR_REQUIRED_KEY, data.get(BBR_REQUIRED_KEY, COMMON_FALSE_STRING))
+        self.address_table.hset(key, AGGREGATE_ADDRESS_PREFIX_LIST_KEY, data.get(AGGREGATE_ADDRESS_PREFIX_LIST_KEY, ""))
+        self.address_table.hset(key, CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY, data.get(CONTRIBUTING_ADDRESS_PREFIX_LIST_KEY, ""))
         self.address_table.hset(key, ADDRESS_STATE_KEY, address_state)
         log_info("AggregateAddressMgr::State of aggregate address %s is set with bbr_required %s and state %s " % (key, data[BBR_REQUIRED_KEY], address_state))
 
     def del_state_db(self, key):
         self.address_table.delete(key)
         log_info("AggregateAddressMgr::State of aggregate address %s is removed" % key)
+
+    def key2prefix(self, key):
+        prefix = key.split("|")[-1]
+        return prefix
+
+    def generate_aggregate_address_commands(self, asn, prefix, is_v4, is_remove, summary_only=COMMON_FALSE_STRING, as_set=COMMON_FALSE_STRING):
+        ret_cmds = []
+        ret_cmds.append("router bgp %s" % asn)
+        ret_cmds.append("address-family ipv4" if is_v4 else "address-family ipv6")
+        agg_cmd = "no " if is_remove else ""
+        agg_cmd += "aggregate-address %s " % prefix
+        if not is_remove and summary_only == COMMON_TRUE_STRING:
+            agg_cmd += " %s" % SUMMARY_ONLY_KEY
+        if not is_remove and as_set == COMMON_TRUE_STRING:
+            agg_cmd += " %s" % AS_SET_KEY
+        ret_cmds.append(agg_cmd)
+        ret_cmds.append("exit-address-family")
+        ret_cmds.append("exit")
+        return ret_cmds
+
+    def generate_prefix_list_commands(self, prefix_list_name, prefix, is_v4, is_con, is_remove):
+        ret_cmds = []
+        prefix_list_cmd = "no " if is_remove else ""
+        prefix_list_cmd += "ip " if is_v4 else "ipv6 "
+        prefix_list_cmd += " prefix-list %s " % prefix_list_name
+        prefix_list_cmd += " permit %s " % prefix
+        if is_con:
+            prefix_list_cmd += " le " + " 32" if is_v4 else " 128"
+        ret_cmds.append(prefix_list_cmd)
+        return ret_cmds
