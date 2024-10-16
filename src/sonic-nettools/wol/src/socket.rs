@@ -6,7 +6,7 @@ use std::os::raw::c_int;
 use std::result::Result;
 use std::str::FromStr;
 
-use crate::wol::{ WolErr, WolErrCode };
+use crate::wol::{ WolErr, WolErrCode, vprintln};
 
 const ANY_INTERFACE: &str = "ANY_INTERFACE";
 const IPV4_ANY_ADDR : &str = "0.0.0.0";
@@ -26,6 +26,7 @@ pub struct RawSocket{
 
 impl RawSocket {
     pub fn new(intf_name: &str) -> Result<RawSocket, WolErr> {
+        vprintln(format!("Creating raw socket for interface: {}", intf_name));
         let res = unsafe {
             libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ALL.to_be())
         };
@@ -41,8 +42,10 @@ impl RawSocket {
     }
 
     fn bind_to_intf(&self, intf_name: &str) -> Result<(), WolErr> {
-
+        vprintln(format!("Binding raw socket to interface: {}", intf_name));
         let addr_ll: libc::sockaddr_ll = RawSocket::generate_sockaddr_ll(intf_name)?;
+
+        vprintln(format!("Interface index={}, MAC={}", addr_ll.sll_ifindex, addr_ll.sll_addr.iter().map(|x| format!("{:02x}", x)).collect::<Vec<String>>().join(":")));
 
         let res = unsafe {
             libc::bind(
@@ -124,6 +127,7 @@ pub struct UdpSocket{
 
 impl UdpSocket {
     pub fn new(intf_name: &str, dst_port: u16, ip_addr: &str) -> Result<UdpSocket, WolErr> {
+        vprintln(format!("Creating udp socket for interface: {}, destination port: {}, ip address: {}", intf_name, dst_port, ip_addr));
         let res = match ip_addr.contains(':') {
             true => unsafe {libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, libc::IPPROTO_UDP)},
             false => unsafe {libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_UDP)},
@@ -142,6 +146,7 @@ impl UdpSocket {
     }
 
     fn enable_broadcast(&self) -> Result<(), WolErr> {
+        vprintln(String::from("Enabling broadcast on udp socket"));
         let res = unsafe {
             libc::setsockopt(
                 self.get_socket(),
@@ -157,6 +162,7 @@ impl UdpSocket {
     }
 
     fn bind_to_intf(&self, intf: &str) -> Result<(), WolErr> {
+        vprintln(format!("Binding udp socket to interface: {}", intf));
         let c_intf = CString::new(intf).map_err(|_| WolErr {
             msg: String::from("Invalid interface name for binding"),
             code: WolErrCode::SocketError as i32,
@@ -176,6 +182,7 @@ impl UdpSocket {
     }
 
     fn connect_to_addr(&self, port: u16, ip_addr: &str) -> Result<(), WolErr> {
+        vprintln(format!("Setting udp socket destination as address: {}, port: {}", ip_addr, port));
         let (addr, addr_len) = match ip_addr.contains(':') {
             true => (
                 &ipv6_addr(port, ip_addr, ANY_INTERFACE)? as *const libc::sockaddr_in6 as *const libc::sockaddr,
@@ -231,7 +238,7 @@ fn ipv4_addr(port: u16, addr: &str) -> Result<libc::sockaddr_in, WolErr> {
     Ok(
         libc::sockaddr_in {
             sin_family: libc::AF_INET as u16,
-            sin_port: port,
+            sin_port: port.to_be(),
             sin_addr: _addr,
             sin_zero: [0; 8],
         }
@@ -262,7 +269,7 @@ fn ipv6_addr(port: u16, addr: &str, intf_name: &str) -> Result<libc::sockaddr_in
     Ok(
         libc::sockaddr_in6 {
             sin6_family: libc::AF_INET6 as u16,
-            sin6_port: port,
+            sin6_port: port.to_be(),
             sin6_flowinfo: 0,
             sin6_addr: _addr,
             sin6_scope_id: _scope_id,

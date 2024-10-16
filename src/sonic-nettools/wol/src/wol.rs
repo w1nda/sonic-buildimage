@@ -13,9 +13,9 @@ use crate::socket::{WolSocket, RawSocket, UdpSocket};
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-static VERBOSE_OUTPUT: Mutex<bool> = Mutex::new(false);
+pub static VERBOSE_OUTPUT: Mutex<bool> = Mutex::new(false);
 
-fn vprint(msg: String) {
+pub fn vprintln(msg: String) {
     if *VERBOSE_OUTPUT.lock().unwrap() {
         println!("{}", msg);
     }
@@ -115,7 +115,7 @@ pub fn build_and_send() -> Result<(), WolErr> {
     let src_mac = get_interface_mac(&args.interface)?;
     let socket = create_wol_socket(&args)?;
     for target_mac in target_macs {
-        vprint(format!(
+        vprintln(format!(
                 "Building and sending packet to target mac address {}",
                 target_mac
                     .iter()
@@ -305,14 +305,14 @@ fn send_magic_packet(
             }
         }
         
-        vprint(
+        vprintln(
             format!(
                 "  | -> Sent the {}th packet and sleep for {} seconds",
                 &nth + 1,
                 &interval
             )
         );
-        vprint(
+        vprintln(
             format!(
                 "    | -> paylod bytes in hex {}",
                 &payload
