@@ -272,7 +272,7 @@ fn ipv6_addr(port: u16, addr: &str, intf_name: &str) -> Result<libc::sockaddr_in
             sin6_port: port.to_be(),
             sin6_flowinfo: 0,
             sin6_addr: _addr,
-            sin6_scope_id: _scope_id,
+            sin6_scope_id: _scope_id.to_be(),
         }
     )
 }
@@ -285,5 +285,61 @@ fn assert_return_code_is_zero(rc: i32, msg: &str, err_code: WolErrCode) -> Resul
         })
     } else {
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ipv4_addr() {
+        let port = 1234;
+        let addr = ipv4_addr(port, IPV4_ANY_ADDR).unwrap();
+        assert_eq!(addr.sin_family , libc::AF_INET as u16);
+        assert_eq!(addr.sin_port.to_le() , port.to_be());
+        assert_eq!(addr.sin_addr.s_addr , libc::INADDR_ANY);
+        assert_eq!(addr.sin_zero , [0; 8]);
+
+        let ip = "1.1.1.1";
+        let addr = ipv4_addr(port, &ip).unwrap();
+        assert_eq!(addr.sin_family , libc::AF_INET as u16);
+        assert_eq!(addr.sin_port.to_le() , port.to_be());
+        assert_eq!(addr.sin_addr.s_addr , u32::from(Ipv4Addr::from_str(ip).unwrap()).to_be());
+        assert_eq!(addr.sin_zero , [0; 8]);
+    }
+
+    #[test]
+    fn test_ipv6_addr() {
+        let port = 1234;
+        let addr = ipv6_addr(port, IPV6_ANY_ADDR, ANY_INTERFACE).unwrap();
+        assert_eq!(addr.sin6_family , libc::AF_INET6 as u16);
+        assert_eq!(addr.sin6_port.to_le() , port.to_be());
+        assert_eq!(addr.sin6_flowinfo , 0);
+        assert_eq!(addr.sin6_addr.s6_addr , libc::IN6ADDR_ANY_INIT.s6_addr);
+        assert_eq!(addr.sin6_scope_id , 0);
+
+        let ip = "2001:db8::1";
+        let addr = ipv6_addr(port, &ip, ANY_INTERFACE).unwrap();
+        assert_eq!(addr.sin6_family , libc::AF_INET6 as u16);
+        assert_eq!(addr.sin6_port.to_le() , port.to_be());
+        assert_eq!(addr.sin6_flowinfo , 0);
+        assert_eq!(addr.sin6_addr.s6_addr , Ipv6Addr::from_str(ip).unwrap().octets());
+        assert_eq!(addr.sin6_scope_id , 0);
+    }
+
+    #[test]
+    fn test_assert_return_code_is_zero() {
+        let rc = 0;
+        assert_eq!(assert_return_code_is_zero(rc, "", WolErrCode::UnknownError).is_ok(), true);
+
+        let rc = -1;
+        let msg = "test";
+        let err_code = WolErrCode::UnknownError;
+        let result = assert_return_code_is_zero(rc, msg, err_code);
+        assert_eq!(result.is_err(), true);
+        assert_eq!(result.as_ref().unwrap_err().code, WolErrCode::UnknownError as i32);
+        assert_eq!(result.unwrap_err().msg, format!("{}, rc=-1,error: {}", msg, io::Error::last_os_error()));
     }
 }
