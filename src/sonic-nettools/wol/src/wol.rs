@@ -1,11 +1,11 @@
 use clap::builder::ArgPredicate;
 use clap::Parser;
-use pnet::datalink::Channel::Ethernet;
-use pnet::datalink::{self, DataLinkSender, MacAddr, NetworkInterface};
+use pnet::datalink;
 use std::fs::read_to_string;
 use std::net::IpAddr;
 use std::result::Result;
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -13,6 +13,13 @@ use crate::socket::{WolSocket, RawSocket, UdpSocket};
 
 const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
+static VERBOSE_OUTPUT: Mutex<bool> = Mutex::new(false);
+
+fn vprint(msg: String) {
+    if *VERBOSE_OUTPUT.lock().unwrap() {
+        println!("{}", msg);
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -24,7 +31,12 @@ Examples:
     wol Ethernet10 00:11:22:33:44:55
     wol Ethernet10 00:11:22:33:44:55 -b
     wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 00:22:44:66:88:aa
-    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -i 2000"
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -p 192.168.1.1 -c 3 -i 2000
+    wol Ethernet10 00:11:22:33:44:55,11:33:55:77:99:bb -u
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -c 3 -i 2000
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -a 192.168.255.255
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -a
+"
 )]
 struct WolArgs {
     /// The name of the network interface to send the magic packet through
@@ -99,22 +111,22 @@ pub fn build_and_send() -> Result<(), WolErr> {
     let args = WolArgs::parse();
     let target_macs = parse_target_macs(&args)?;
     valide_arguments(&args)?;
+    *VERBOSE_OUTPUT.lock().unwrap() = args.verbose;
     let src_mac = get_interface_mac(&args.interface)?;
     let socket = create_wol_socket(&args)?;
     for target_mac in target_macs {
-        if args.verbose {
-            println!(
+        vprint(format!(
                 "Building and sending packet to target mac address {}",
                 target_mac
                     .iter()
                     .map(|b| format!("{:02X}", b))
                     .collect::<Vec<String>>()
                     .join(":")
-            );
-        }
+            )
+        );
         let magic_bytes = build_magic_bytes(&args, &src_mac, &target_mac, &args.password)?;
         let target_addr: String = args.ip_address.clone() + ":" + &args.udp_port.to_string();
-        send_magic_packet(&socket, magic_bytes, &target_addr, &args.count, &args.interval, &args.verbose)?;
+        send_magic_packet(socket.as_ref(), magic_bytes, &target_addr, &args.count, &args.interval)?;
     }
 
     Ok(())
@@ -145,7 +157,7 @@ fn valide_arguments(args: &WolArgs) -> Result<(), WolErr> {
         });
     }
 
-    if let Err(_) = IpAddr::from_str(&args.ip_address) {
+    if IpAddr::from_str(&args.ip_address).is_err() {
         return Err(WolErr {
             msg: String::from("Invalid ip address"),
             code: WolErrCode::InvalidArguments as i32,
@@ -156,7 +168,7 @@ fn valide_arguments(args: &WolArgs) -> Result<(), WolErr> {
 }
 
 fn parse_mac_addr(mac_str: &str) -> Result<[u8; 6], WolErr> {
-    MacAddr::from_str(mac_str)
+    datalink::MacAddr::from_str(mac_str)
         .map(|mac| mac.octets())
         .map_err(|_| WolErr {
             msg: String::from("Invalid MAC address"),
@@ -233,7 +245,7 @@ fn is_ipv4_address_valid(ipv4_str: &str) -> bool {
 fn get_interface_mac(interface_name: &String) -> Result<[u8; 6], WolErr> {
     if let Some(interface) = datalink::interfaces()
         .into_iter()
-        .find(|iface: &NetworkInterface| iface.name == *interface_name)
+        .find(|iface: &datalink::NetworkInterface| iface.name == *interface_name)
     {
         if let Some(mac) = interface.mac {
             Ok(mac.octets())
@@ -275,16 +287,15 @@ fn build_magic_bytes(
 }
 
 fn send_magic_packet(
-    socket: &Box<dyn WolSocket>,
+    socket: &dyn WolSocket,
     payload: Vec<u8>,
     addr: &str,
     count: &u8,
-    interval: &u64,
-    verbose: &bool,
+    interval: &u64
 ) -> Result<(), WolErr>
 {
     for nth in 0..*count {
-        match socket.send_magic_packet(&payload, &addr) {
+        match socket.send_magic_packet(&payload, addr) {
             Ok(_) => {}
             Err(e) => {
                 return Err(WolErr {
@@ -293,19 +304,22 @@ fn send_magic_packet(
                 });
             }
         }
-        if *verbose {
-            println!(
+        
+        vprint(
+            format!(
                 "  | -> Sent the {}th packet and sleep for {} seconds",
                 &nth + 1,
                 &interval
-            );
-            println!(
+            )
+        );
+        vprint(
+            format!(
                 "    | -> paylod bytes in hex {}",
                 &payload
                     .iter()
                     .fold(String::new(), |acc, b| acc + &format!("{:02X}", b))
             )
-        }
+        );
         thread::sleep(Duration::from_millis(*interval));
     }
     Ok(())
@@ -313,12 +327,11 @@ fn send_magic_packet(
 
 
 fn create_wol_socket(args: &WolArgs) -> Result<Box<dyn WolSocket>, WolErr> {
-    let _socket: Box<dyn WolSocket>;
-    if args.udp {
-        _socket = Box::new(UdpSocket::new(&args.interface, args.udp_port, &args.ip_address)?);
+    let _socket: Box<dyn WolSocket> = if args.udp {
+        Box::new(UdpSocket::new(&args.interface, args.udp_port, &args.ip_address)?)
     } else {
-        _socket = Box::new(RawSocket::new(&args.interface)?);
-    }
+        Box::new(RawSocket::new(&args.interface)?)
+    };
 
     Ok(_socket)
 }
