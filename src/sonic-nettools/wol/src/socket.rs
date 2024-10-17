@@ -24,7 +24,7 @@ pub trait WolSocket {
         if res < 0 {
             Err(WolErr {
                 msg: format!("Failed to send packet, rc={}, error: {}", res, io::Error::last_os_error()),
-                code: WolErrCode::UnknownError as i32
+                code: WolErrCode::InternalError as i32
             })
         } else {
             Ok(res as usize)
@@ -45,7 +45,7 @@ impl RawSocket {
         if res < 0 {
             return Err(WolErr {
                 msg: format!("Failed to create raw socket, rc={}, error: {}", res, io::Error::last_os_error()),
-                code: WolErrCode::UnknownError as i32
+                code: WolErrCode::InternalError as i32
             })
         }
         let _socket = RawSocket{ cs: res };
@@ -82,7 +82,7 @@ impl RawSocket {
         let res = unsafe {
             libc::getifaddrs(&mut addrs)
         };
-        assert_return_code_is_zero(res, "Failed on getifaddrs function", WolErrCode::UnknownError)?;
+        assert_return_code_is_zero(res, "Failed on getifaddrs function", WolErrCode::InternalError)?;
 
         let mut addr = addrs;
         while !addr.is_null() {
@@ -104,6 +104,13 @@ impl RawSocket {
             }
             
             addr = addr_ref.ifa_next;
+        }
+
+        if addr.is_null() {
+            return Err(WolErr {
+                msg: format!("Failed to find interface: {}", intf_name),
+                code: WolErrCode::InternalError as i32
+            });
         }
 
         unsafe {
@@ -316,14 +323,14 @@ mod tests {
     #[test]
     fn test_assert_return_code_is_zero() {
         let rc = 0;
-        assert_eq!(assert_return_code_is_zero(rc, "", WolErrCode::UnknownError).is_ok(), true);
+        assert_eq!(assert_return_code_is_zero(rc, "", WolErrCode::InternalError).is_ok(), true);
 
         let rc = -1;
         let msg = "test";
-        let err_code = WolErrCode::UnknownError;
+        let err_code = WolErrCode::InternalError;
         let result = assert_return_code_is_zero(rc, msg, err_code);
         assert_eq!(result.is_err(), true);
-        assert_eq!(result.as_ref().unwrap_err().code, WolErrCode::UnknownError as i32);
+        assert_eq!(result.as_ref().unwrap_err().code, WolErrCode::InternalError as i32);
         assert_eq!(result.unwrap_err().msg, format!("{}, rc=-1,error: {}", msg, io::Error::last_os_error()));
     }
 }

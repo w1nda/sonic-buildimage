@@ -105,7 +105,7 @@ impl std::fmt::Display for WolErr {
 pub enum WolErrCode {
     SocketError = 1,
     InvalidArguments = 2,
-    UnknownError = 999,
+    InternalError = 255,
 }
 
 pub fn build_and_send() -> Result<(), WolErr> {
@@ -252,7 +252,7 @@ fn get_interface_mac(interface_name: &String) -> Result<[u8; 6], WolErr> {
         } else {
             Err(WolErr {
                 msg: String::from("Could not get MAC address of target interface"),
-                code: WolErrCode::UnknownError as i32,
+                code: WolErrCode::InternalError as i32,
             })
         }
     } else {
@@ -727,6 +727,25 @@ mod tests {
             result.unwrap_err().to_string(),
             "error: the following required arguments were not provided:\n  --udp\n\nUsage: wol --udp --ip-address <IP_ADDRESS> <INTERFACE> <TARGET_MAC>\n\nFor more information, try '--help'.\n"
         );
+        // Broadcast and udp flags are mutually exclusive
+        let result = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05", "-b", "-u"]);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "error: the argument '--broadcast' cannot be used with '--udp'\n\nUsage: wol --broadcast <INTERFACE> <TARGET_MAC>\n\nFor more information, try '--help'.\n"
+        );
+    }
 
+    #[test]
+    fn verify_args_default_value(){
+        let args = WolArgs::try_parse_from(&["wol", "eth0", "00:01:02:03:04:05"]).unwrap();
+        assert_eq!(args.broadcast, false);
+        assert_eq!(args.udp, false);
+        assert_eq!(args.ip_address, "255.255.255.255");
+        assert_eq!(args.udp_port, 9);
+        assert_eq!(args.password.is_none(), true);
+        assert_eq!(args.count, 1);
+        assert_eq!(args.interval, 0);
+        assert_eq!(args.verbose, false);
     }
 }
