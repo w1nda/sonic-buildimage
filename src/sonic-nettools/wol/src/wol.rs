@@ -35,6 +35,7 @@ Examples:
     wol Ethernet10 00:11:22:33:44:55,11:33:55:77:99:bb -u
     wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -c 3 -i 2000
     wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -a 192.168.255.255
+    wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -a ffff::ffff
     wol Vlan1000 00:11:22:33:44:55,11:33:55:77:99:bb -u -a
 "
 )]
@@ -53,11 +54,11 @@ struct WolArgs {
     #[arg(short, long, default_value_t = false, conflicts_with("broadcast"))]
     udp: bool,
 
-    /// The destination ip address, both IPv4 address and IPv6 address are supported [default: 255.255.255.255]
+    /// The destination ip address, both IPv4 address and IPv6 address are supported 
     #[arg(short = 'a', long, default_value_t = String::from("255.255.255.255"), requires_if(ArgPredicate::IsPresent, "udp"))]
     ip_address: String,
 
-    /// The the destination udp port. [default: 9]
+    /// The the destination udp port.
     #[arg(short = 't', long, default_value_t = 9, requires_if(ArgPredicate::IsPresent, "udp"))]
     udp_port: u16,
 
@@ -65,11 +66,11 @@ struct WolArgs {
     #[arg(short, long, value_parser = parse_password)]
     password: Option<Password>,
 
-    /// For each target MAC address, the count of magic packets to send. count must between 1 and 5. This param must use with -i. [default: 1]
+    /// For each target MAC address, the count of magic packets to send. count must between 1 and 5. This param must use with -i.
     #[arg(short, long, default_value_t = 1, requires_if(ArgPredicate::IsPresent, "interval"))]
     count: u8,
 
-    /// Wait interval milliseconds between sending each magic packet. interval must between 0 and 2000. This param must use with -c. [default: 0]
+    /// Wait interval milliseconds between sending each magic packet. interval must between 0 and 2000. This param must use with -c.
     #[arg(short, long, default_value_t = 0, requires_if(ArgPredicate::IsPresent, "count"))]
     interval: u64,
 
@@ -125,8 +126,7 @@ pub fn build_and_send() -> Result<(), WolErr> {
             )
         );
         let magic_bytes = build_magic_bytes(&args, &src_mac, &target_mac, &args.password)?;
-        let target_addr: String = args.ip_address.clone() + ":" + &args.udp_port.to_string();
-        send_magic_packet(socket.as_ref(), magic_bytes, &target_addr, &args.count, &args.interval)?;
+        send_magic_packet(socket.as_ref(), magic_bytes, &args.count, &args.interval)?;
     }
 
     Ok(())
@@ -289,13 +289,12 @@ fn build_magic_bytes(
 fn send_magic_packet(
     socket: &dyn WolSocket,
     payload: Vec<u8>,
-    addr: &str,
     count: &u8,
     interval: &u64
 ) -> Result<(), WolErr>
 {
     for nth in 0..*count {
-        match socket.send_magic_packet(&payload, addr) {
+        match socket.send_magic_packet(&payload) {
             Ok(_) => {}
             Err(e) => {
                 return Err(WolErr {

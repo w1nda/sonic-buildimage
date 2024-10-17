@@ -15,9 +15,21 @@ const IPV6_ANY_ADDR : &str = "::";
 type CSocket = c_int;
 
 pub trait WolSocket {
-    fn send_magic_packet(&self, buf : &[u8], addr: &str) -> Result<usize, WolErr>;
-
     fn get_socket(&self) -> CSocket;
+
+    fn send_magic_packet(&self, buf : &[u8]) -> Result<usize, WolErr> {
+        let res = unsafe {
+            libc::send(self.get_socket(), buf.as_ptr() as *const libc::c_void, buf.len(), 0)
+        };
+        if res < 0 {
+            Err(WolErr {
+                msg: format!("Failed to send packet, rc={}, error: {}", res, io::Error::last_os_error()),
+                code: WolErrCode::UnknownError as i32
+            })
+        } else {
+            Ok(res as usize)
+        }
+    }
 }
 
 pub struct RawSocket{
@@ -104,20 +116,6 @@ impl RawSocket {
 
 impl WolSocket for RawSocket {
     fn get_socket(&self) -> CSocket { self.cs }
-
-    fn send_magic_packet(&self, buf : &[u8], _: &str) -> Result<usize, WolErr> {
-        let res = unsafe {
-            libc::send(self.get_socket(), buf.as_ptr() as *const libc::c_void, buf.len(), 0)
-        };
-        if res < 0 {
-            Err(WolErr {
-                msg: format!("Failed to send packet, rc={}, error: {}", res, io::Error::last_os_error()),
-                code: WolErrCode::UnknownError as i32
-            })
-        } else {
-            Ok(res as usize)
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -208,20 +206,6 @@ impl UdpSocket {
 
 impl WolSocket for UdpSocket {
     fn get_socket(&self) -> CSocket { self.cs }
-
-    fn send_magic_packet(&self, buf : &[u8], _: &str) -> Result<usize, WolErr> {
-        let res = unsafe {
-            libc::send(self.get_socket(), buf.as_ptr() as *const libc::c_void, buf.len(), 0)
-        };
-        if res < 0 {
-            Err(WolErr {
-                msg: format!("Failed to create udp socket, rc={}, error: {}", res, io::Error::last_os_error()),
-                code: WolErrCode::UnknownError as i32
-            })
-        } else {
-            Ok(res as usize)
-        }
-    }
 }
 
 fn ipv4_addr(port: u16, addr: &str) -> Result<libc::sockaddr_in, WolErr> {
