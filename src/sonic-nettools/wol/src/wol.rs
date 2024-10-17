@@ -58,7 +58,7 @@ struct WolArgs {
     #[arg(short = 'a', long, default_value_t = String::from("255.255.255.255"), requires_if(ArgPredicate::IsPresent, "udp"))]
     ip_address: String,
 
-    /// The the destination udp port.
+    /// The destination udp port.
     #[arg(short = 't', long, default_value_t = 9, requires_if(ArgPredicate::IsPresent, "udp"))]
     udp_port: u16,
 
