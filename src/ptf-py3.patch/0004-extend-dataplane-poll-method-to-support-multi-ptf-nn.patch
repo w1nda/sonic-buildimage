@@ -1,23 +1,23 @@
-From c46fb401ab3d90c1829071b4b0933defbc6135dc Mon Sep 17 00:00:00 2001
+From 688c4d11a00269beaf22eb6f2cccba410bfb2856 Mon Sep 17 00:00:00 2001
 From: wenda <wendachu@microsoft.com>
 Date: Fri, 6 Dec 2024 07:25:30 +0000
 Subject: [PATCH] extend dataplane poll method to support multi ptf nn agents
  connections
 
 ---
- src/ptf/dataplane.py | 22 ++++++++++++----------
- 1 file changed, 12 insertions(+), 10 deletions(-)
+ src/ptf/dataplane.py | 31 ++++++++++++++++++++-----------
+ 1 file changed, 20 insertions(+), 11 deletions(-)
 
 diff --git a/src/ptf/dataplane.py b/src/ptf/dataplane.py
-index a1c1b3f..df9f39f 100644
+index a1c1b3f..009ac2f 100644
 --- a/src/ptf/dataplane.py
 +++ b/src/ptf/dataplane.py
-@@ -738,40 +738,42 @@ class DataPlane(Thread):
+@@ -738,40 +738,49 @@ class DataPlane(Thread):
              )
          return bytes
  
 -    def oldest_port_number(self, device):
-+    def get_oldest(self, device):
++    def get_oldest_tuple(self, device):
          """
 -        Returns the port number with the oldest packet,
 +        Returns the device number and port number with the oldest packet,
@@ -41,15 +41,23 @@ index a1c1b3f..df9f39f 100644
      # Dequeues and yields packets in the order they were received.
      # Yields (port, packet, received time).
      # If port is not specified yields packets from all ports.
++    # If port and device are both not specified yields packets from all devices and all ports
      def packets(self, device, port=None):
          while True:
 -            if port is None:
 -                rcv_port = self.oldest_port_number(device)
 -            else:
-+            if device is None:
-+                rcv_device, rcv_port = self.get_oldest(None)
-+            if port is not None:
-                 rcv_port = port
+-                rcv_port = port
++            rcv_device, rcv_port = device, port
++            if device is None and port is None:
++                rcv_device, rcv_port = self.get_oldest_tuple(None)
++            elif port is None:
++                _, rcv_port = self.get_oldest_tuple(device)
++            elif device is None:
++                self.logger.error(
++                    "ambiguous tuple given. device is None, while port is %s" % (port)
++                )
++                break
  
              if rcv_port == None:
                  self.logger.debug("Out of packets on all ports")
